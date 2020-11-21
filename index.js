@@ -1,6 +1,7 @@
 const puppeteer = require("puppeteer");
 const { format } = require("date-fns");
 const fs = require("fs");
+const reportDir = "surf_report";
 
 const goToTodayReport = async (page) => {
   return await page.evaluate((today) => {
@@ -62,27 +63,39 @@ const downloadReportImages = async (page, imagePages) => {
   }
 
   const haveImagesUrl = imagesUrl && imagesUrl.length > 0;
-
-  const reportDir = "surf_report";
   if (haveImagesUrl && !fs.existsSync(reportDir)) fs.mkdirSync(reportDir);
 
   for (const imagem of imagesUrl) {
-    console.log("Salvando imagem do boletim.");
     const viewSource = await page.goto(imagem, {
       waitUntil: "networkidle2",
     });
-
+    console.log("Saving surf report image...");
     fs.writeFile(
-      `./surf_report/${new Date().getTime()}.png`,
+      `./${reportDir}/${new Date().getTime()}.png`,
       await viewSource.buffer(),
-      function (err) {
-        if (err) {
-          return console.log(err);
-        }
+      (err) => {
+        if (err) console.log(`Error writing file: ${err}`);
       }
     );
   }
   return haveImagesUrl;
+};
+
+const deleteLastReport = () => {
+  try {
+    fs.rmSync(reportDir, { recursive: true });
+  } catch (e) {}
+};
+
+const writeReportText = (report) => {
+  fs.writeFile(
+    `./${reportDir}/${format(new Date(), "dd-MM-yy HH:mm:ss")}.json`,
+    JSON.stringify({ report }),
+    "utf8",
+    (err) => {
+      if (err) console.log(`Error writing file: ${err}`);
+    }
+  );
 };
 
 (async () => {
@@ -90,11 +103,13 @@ const downloadReportImages = async (page, imagePages) => {
   const navigateSuccess = await goToTodayReport(page);
 
   if (navigateSuccess) {
+    deleteLastReport();
     await page.waitForTimeout(2000);
     const [reportText, imagePages] = await findReportData(page);
-    const haveImagesUrl = await downloadReportImages(page, imagePages);
-    console.log(reportText);
-    if (haveImagesUrl) fs.rmdirSync("surf_report", { recursive: true });
+    if (imagePages && imagePages.length > 0) {
+      const haveImagesUrl = await downloadReportImages(page, imagePages);
+    }
+    writeReportText(reportText);
   }
 
   await browser.close();
