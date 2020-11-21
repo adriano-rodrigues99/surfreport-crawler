@@ -3,6 +3,18 @@ const { format } = require("date-fns");
 const fs = require("fs");
 const reportDir = "surf_report";
 
+const openReportPage = async () => {
+  const browser = await puppeteer.launch({
+    headless: false,
+  });
+  const page = await browser.newPage();
+  await page.goto("https://www.facebook.com/shorelinefloripa/posts", {
+    waitUntil: "networkidle2",
+  });
+  await page.click('a[action="cancel"]');
+  return [page, browser];
+};
+
 const goToTodayReport = async (page) => {
   return await page.evaluate((today) => {
     let haveReport = false;
@@ -22,16 +34,18 @@ const goToTodayReport = async (page) => {
   }, format(new Date(), "dd/MM/yy"));
 };
 
-const openReportPage = async () => {
-  const browser = await puppeteer.launch({
-    headless: true,
-  });
-  const page = await browser.newPage();
-  await page.goto("https://www.facebook.com/shorelinefloripa/posts", {
-    waitUntil: "networkidle2",
-  });
-  await page.click('a[action="cancel"]');
-  return [page, browser];
+const deleteLoginAlertElement = async (page, selector) => {
+  try {
+    await page.waitFor(selector);
+    await page.evaluate((selector) => {
+      var elements = document.querySelectorAll(selector);
+      for (const element of elements) {
+        element.parentNode.removeChild(element);
+      }
+    }, selector);
+  } catch (err) {
+    console.log(`Error to delete login alert element: ${err}`);
+  }
 };
 
 const findReportData = async (page) => {
@@ -46,6 +60,12 @@ const findReportData = async (page) => {
       imagePages.push(imagem.href);
     });
     return [text, imagePages];
+  });
+};
+
+const writeFile = (path, file) => {
+  fs.writeFile(path, file, (err) => {
+    if (err) console.log(`Error writing file: ${err}`);
   });
 };
 
@@ -70,12 +90,9 @@ const downloadReportImages = async (page, imagePages) => {
       waitUntil: "networkidle2",
     });
     console.log("Saving surf report image...");
-    fs.writeFile(
+    writeFile(
       `./${reportDir}/${new Date().getTime()}.png`,
-      await viewSource.buffer(),
-      (err) => {
-        if (err) console.log(`Error writing file: ${err}`);
-      }
+      await viewSource.buffer()
     );
   }
   return haveImagesUrl;
@@ -88,19 +105,17 @@ const deleteLastReport = () => {
 };
 
 const writeReportText = (report) => {
-  fs.writeFile(
+  writeFile(
     `./${reportDir}/${format(new Date(), "dd-MM-yy HH:mm:ss")}.json`,
-    JSON.stringify({ report }),
-    "utf8",
-    (err) => {
-      if (err) console.log(`Error writing file: ${err}`);
-    }
+    JSON.stringify({ report })
   );
 };
 
 (async () => {
   const [page, browser] = await openReportPage();
+  await deleteLoginAlertElement(page, "#pagelet_growth_expanding_cta");
   const navigateSuccess = await goToTodayReport(page);
+  await deleteLoginAlertElement(page, "#u_0_c");
 
   if (navigateSuccess) {
     deleteLastReport();
